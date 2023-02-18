@@ -1,0 +1,222 @@
+extends KinematicBody2D
+
+enum States {IDLE = 1, RUN, JUMP, BEGINFALLING, FALLING, FASTFALLING, LANDING, NEXTTOWALL }
+var state = States.IDLE
+
+const UP = Vector2(0,-1)
+const GRAVITY = 11
+const MAXSPEED = 150
+const JUMPFORCE = 220
+const JUMPFORCEWALL = 0.8
+const JUMPWIDEWALL = 70
+const ACCEL = 30
+const AIR_ACCEL = 10
+const FRICTION = 0.3
+var SPEEDFALLING = 300
+var MAXFALLSPEED = 200
+var MAXSPEEDFALLSPEED = 300
+var COYOTETIMER = true
+var COYOTETIME = 0.1
+
+
+onready var 	animationState = $AnimationTree.get("parameters/playback")
+onready var coyote_timer: = $CoyoteTimer
+onready var animationPlayer: = $AnimationPlayer
+
+
+var motion = Vector2()
+var facing_right = true
+
+func _physics_process(_delta):
+	print(COYOTETIMER)
+	match state:
+		States.IDLE:
+			motion.x = lerp(motion.x,0,FRICTION)
+			animationState.travel("Idle")
+			COYOTETIMER = true
+			if not is_on_floor():
+				state = States.BEGINFALLING
+				continue
+			elif Input.is_action_pressed("right") or Input.is_action_pressed("left"):
+				state = States.RUN
+				continue
+			elif Input.is_action_just_pressed("jump"):
+				motion.y = -JUMPFORCE
+				state = States.JUMP
+				continue
+				
+			move_and_fall()
+			
+		States.RUN:
+			if not is_on_floor():
+				state = States.BEGINFALLING
+				continue
+			if Input.is_action_pressed("right"):
+				motion.x += ACCEL
+				facing_right = true
+				animationState.travel("Run")
+			elif Input.is_action_pressed("left"):
+				motion.x -= ACCEL
+				facing_right = false
+				animationState.travel("Run")
+			else:
+				state = States.IDLE
+				continue
+				
+			if Input.is_action_just_pressed("jump"):
+				if COYOTETIMER == true:
+					motion.y = -JUMPFORCE
+					state = States.JUMP
+				
+			move_and_fall()
+			
+		States.JUMP:
+			if nextToWall() and motion.y > 0:
+				state = States.NEXTTOWALL
+				continue
+			if Input.is_action_pressed("down"):
+				pass
+			if motion.y > 0:
+				state = States.BEGINFALLING
+			if Input.is_action_pressed("right"):
+				motion.x += AIR_ACCEL
+				facing_right = true
+			elif Input.is_action_pressed("left"):
+				motion.x -= AIR_ACCEL
+				facing_right = false
+			animationState.travel("Jump")
+			move_and_fall()
+			
+		States.BEGINFALLING:
+			coyoteTimer()
+			if Input.is_action_just_pressed("jump"):
+				if COYOTETIMER == true:
+					motion.y = -JUMPFORCE
+					state = States.JUMP
+			if nextToWall() and not is_on_floor():
+				state = States.NEXTTOWALL
+				continue
+			if Input.is_action_pressed("down"):
+				state = States.FASTFALLING
+				continue
+			if is_on_floor():
+				state = States.IDLE
+			if motion.y > 60:
+				state = States.FALLING
+			if Input.is_action_pressed("right"):
+				motion.x += AIR_ACCEL
+				facing_right = true
+			elif Input.is_action_pressed("left"):
+				motion.x -= AIR_ACCEL
+				facing_right = false
+			animationState.travel("PreFall")
+			move_and_fall()
+			
+		States.FALLING:
+			if nextToWall() and not is_on_floor():
+				state = States.NEXTTOWALL
+				continue
+			if Input.is_action_pressed("down"):
+				state = States.FASTFALLING
+				continue
+			if is_on_floor():
+				state = States.IDLE
+				continue
+			if Input.is_action_pressed("right"):
+				motion.x += AIR_ACCEL
+				facing_right = true
+			elif Input.is_action_pressed("left"):
+				motion.x -= AIR_ACCEL
+				facing_right = false
+			animationState.travel("Fall")
+			move_and_fall()
+			
+		States.FASTFALLING:
+			if is_on_floor():
+				state = States.IDLE
+				continue
+			if Input.is_action_pressed("down"):
+				motion.y = SPEEDFALLING
+				MAXFALLSPEED = MAXSPEEDFALLSPEED
+			elif Input.is_action_just_released("down"):
+				state = States.FALLING
+				continue
+			motion.x = 0
+			animationState.travel("Fall")
+			move_and_fall()
+			
+		States.LANDING:
+			if Input.is_action_just_pressed("jump"):
+				motion.y = -JUMPFORCE
+				state = States.JUMP
+				continue
+			if Input.is_action_pressed("right"):
+				motion.x += AIR_ACCEL
+				facing_right = true
+			elif Input.is_action_pressed("left"):
+				motion.x -= AIR_ACCEL
+				facing_right = false
+				
+			move_and_fall()
+			
+		States.NEXTTOWALL:
+			if not nextToWall():
+				state = States.BEGINFALLING
+				continue
+			if is_on_floor():
+				state = States.IDLE
+				continue
+			if Input.is_action_pressed("jump") and (Input.is_action_pressed("left")) and nextToRightWall():
+				motion.y = -JUMPFORCE * JUMPFORCEWALL
+				motion.x = -JUMPWIDEWALL
+				state = States.JUMP
+				continue
+			if Input.is_action_pressed("jump") and (Input.is_action_pressed("right")) and nextToLeftWall():
+				motion.y = -JUMPFORCE * JUMPFORCEWALL
+				motion.x = JUMPWIDEWALL
+				state = States.JUMP
+				continue
+			if Input.is_action_pressed("right"):
+				motion.x += ACCEL
+				facing_right = true
+			if Input.is_action_pressed("left"):
+				motion.x -= ACCEL
+				facing_right = false
+			if nextToRightWall():
+				facing_right = false
+				animationState.travel("WallSlide")
+			if nextToLeftWall():
+				facing_right = true
+				animationState.travel("WallSlide")
+			if motion.y > 30:
+				motion.y = 30
+			if motion.y < 0:
+				motion.y = 0
+			move_and_fall()
+	
+	if motion.y > MAXFALLSPEED:
+		motion.y = MAXFALLSPEED
+	
+	if facing_right == true:
+		$Sprite.flip_h = true
+	else:
+		$Sprite.flip_h = false
+	
+func move_and_fall():
+	motion.y += GRAVITY
+	motion = move_and_slide(motion,Vector2.UP)
+	motion.x = clamp(motion.x,-MAXSPEED,MAXSPEED)
+	
+func nextToWall():
+	return nextToRightWall() or nextToLeftWall()
+	
+func nextToRightWall():
+	return $RightWall.is_colliding()
+	
+func nextToLeftWall():
+	return $LeftWall.is_colliding()
+
+func coyoteTimer():
+	yield(get_tree().create_timer(COYOTETIME), "timeout")
+	COYOTETIMER = false
+	pass
